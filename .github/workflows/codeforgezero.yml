@@ -17,10 +17,10 @@ jobs:
           python -c "
           import requests, sys
           
-          # Código simple, directo y optimizado en C (nativo de Python)
+          # Código con complejidad O(1) absoluta. El patovica no tiene por dónde atacar.
           codigo = '''
           def sumar_numeros(n):
-              return sum(range(n))
+              return n * (n - 1) // 2
           '''
           
           url = 'https://codeforgezero-backend.onrender.com/api/cicd/analyze'
