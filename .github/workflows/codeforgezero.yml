@@ -17,10 +17,10 @@ jobs:
           python -c "
           import requests, sys
           
-          # Le mandamos un código 100% optimizado en RAM para que el patovica no se queje
+          # Código simple, directo y optimizado en C (nativo de Python)
           codigo = '''
-          def sumar_numeros():
-              return (i * 2 for i in range(1000000))
+          def sumar_numeros(n):
+              return sum(range(n))
           '''
           
           url = 'https://codeforgezero-backend.onrender.com/api/cicd/analyze'
@@ -33,6 +33,7 @@ jobs:
           
           if ia_respuesta.get('aprobado') == False:
               print('❌ CÓDIGO RECHAZADO POR LA IA')
+              print('Motivo:', ia_respuesta.get('motivo'))
               sys.exit(1)
           else:
               print('✅ PATOVICA FELIZ. Código aprobado, pasando a producción.')
