@@ -84,3 +84,63 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
     except Exception as e:
         print(f"❌ Error en la Matrix: {e}")
         return {"error": str(e)}
+
+
+
+# Asegurate de tener importado BaseModel de pydantic si usas FastAPI
+# from pydantic import BaseModel
+
+class CicdRequest(BaseModel):
+    code: str
+    language: str = "python"
+
+@app.post("/api/cicd/analyze")
+async def cicd_analyze(payload: CicdRequest):
+    codigo_nuevo = payload.code
+
+    prompt_cicd = f"""
+    Eres un Cloud Security & FinOps Architect operando en un pipeline CI/CD.
+    Tu trabajo es auditar el siguiente código buscando ineficiencias críticas de RAM (Complejidad Espacial) y CPU.
+    Si el código es ineficiente, debes rechazarlo ("aprobado": false).
+    
+    Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta, sin texto adicional:
+    {{
+        "aprobado": true o false,
+        "motivo": "Explicación técnica corta",
+        "codigo_sugerido": "El código optimizado aquí"
+    }}
+
+    Código a analizar:
+    {codigo_nuevo}
+    """
+
+    try:
+        # Llamada REAL a la API de Groq
+        chat_completion = cliente_groq.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Eres un analizador de código estricto. Responde SOLO con formato JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt_cicd
+                }
+            ],
+            model="llama-3.3-70b-versatile", 
+            response_format={"type": "json_object"}, 
+            temperature=0.1 
+        )
+        
+        # 1. Extraemos el texto crudo que devolvió Groq
+        respuesta_texto = chat_completion.choices[0].message.content
+        
+        # 2. Lo convertimos de texto a un diccionario real de Python
+        respuesta_ia = json.loads(respuesta_texto)
+
+        return {
+            "status": "success",
+            "webhook_response": respuesta_ia
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

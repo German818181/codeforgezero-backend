@@ -1,0 +1,39 @@
+name: CodeForgeZero DevSecOps Pipeline
+
+on: [push] # Se dispara cada vez que alguien sube código
+
+jobs:
+  auditoria-ia:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código nuevo
+        uses: actions/checkout@v3
+
+      - name: Instalar herramientas
+        run: pip install requests
+
+      - name: Consultar al Patovica (Render)
+        run: |
+          python -c "
+          import requests, sys
+          # Leemos el archivo principal (podés cambiarlo por el que quieras auditar)
+          with open('main.py', 'r') as f: codigo = f.read()
+          
+          # 🔴 ACORDATE DE CAMBIAR ESTA URL POR LA TUYA DE RENDER REAL 🔴
+          url = 'https://codeforgezero-backend.onrender.com'
+          
+          print('🚀 Enviando código a la IA de CodeForgeZero...')
+          res = requests.post(url, json={'code': codigo, 'language': 'python'})
+          data = res.json()
+          
+          ia_respuesta = data.get('webhook_response', {})
+          
+          if ia_respuesta.get('aprobado') == False:
+              print('❌ CÓDIGO RECHAZADO POR LA IA')
+              print('Motivo:', ia_respuesta.get('motivo'))
+              print('Sugerencia:', ia_respuesta.get('codigo_sugerido'))
+              sys.exit(1) # ESTO ES LA MAGIA: Rompe la compilación y bloquea producción
+          else:
+              print('✅ Código aprobado, pasando a producción.')
+          "
+        shell: bash
