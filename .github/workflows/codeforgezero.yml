@@ -20,7 +20,7 @@ jobs:
           with open('main.py', 'r') as f: codigo = f.read()
           
           # 🔴 ACORDATE DE CAMBIAR ESTA URL POR LA TUYA DE RENDER REAL 🔴
-          url = 'https://codeforgezero-backend.onrender.com'
+          url = 'https://codeforgezero-backend.onrender.com/api/cicd/analyze'
           
           print('🚀 Enviando código a la IA de CodeForgeZero...')
           res = requests.post(url, json={'code': codigo, 'language': 'python'})
