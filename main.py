@@ -119,6 +119,8 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
         else:
             ahorro_ram = 99.9
         print("------------------------------------------\n")
+        # 🔥 EL PARCHE MÁGICO: Pisamos la estimación de la IA con el cálculo real
+        resultado_json["metricas"]["porcentaje_ahorro_ram"] = round(ahorro_ram, 1)
 
         print("Mandando código al Coliseo...")
         codigo_completo_a_testear = resultado_json["codigo_optimizado"] + "\n\n" + resultado_json["script_prueba"]
