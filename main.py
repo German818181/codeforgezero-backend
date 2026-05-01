@@ -55,7 +55,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
 
     REGLAS DE ORO (ESTRICTAS):
     1. PROHIBIDO: NUNCA iteres un generador o lista múltiples veces dentro de un bucle for o comprensión.
-    2. OBLIGATORIO (CPU): Si hay bucles anidados buscando datos (Complejidad O(n^2)), DEBES crear primero un Diccionario (Hash Map) agrupando los datos, y luego usar ese diccionario para que la búsqueda sea O(1).
+    2. REGLA 2 (ACTUALIZADA): Si detectas bucles anidados, DEBES aplanar la estructura. No uses diccionarios de listas si puedes usar diccionarios de valores únicos o comprensiones de listas directas. El ahorro de RAM debe ser la prioridad absoluta sobre la legibilidad.
     3. FORMATO (ESTRICTO): El campo "reporte" DEBE ser una lista estructurada con guiones ('- '). PROHIBIDO usar párrafos.
     4. ESCAPE DE CARACTERES: Asegúrate de escapar correctamente las comillas y saltos de línea (\\n) para que el JSON sea válido.
     5. ANTI-COSMÉTICA (CRÍTICO): Eres un auditor FinOps, no un Linter. IGNORA la estética. NO renombres funciones ni variables, NO corrijas estilos de escritura (camelCase/snake_case/mayúsculas), y mantén los nombres originales por más aberrantes que sean. Tu ÚNICO trabajo es modificar la lógica algorítmica y la estructura de datos.
