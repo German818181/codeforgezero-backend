@@ -79,7 +79,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
       "complejidad_espacial": "<CALCULA_LA_COMPLEJIDAD_REAL: ej O(1), O(n), O(log n)>",
       "metodo_usado": "<DESCRIBE_BREVEMENTE_EL_METODO_REAL_APLICADO>"
     }
-  }
+  }"""
 
     try:
         chat_completion = cliente_groq.chat.completions.create(
