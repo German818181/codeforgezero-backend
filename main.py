@@ -70,17 +70,16 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
         return ( {'Usuario': u['nombre'], 'Total': totales_dict.get(u['ID_feo'], 0)} 
                  for u in obtener_usuarios() if totales_dict.get(u['ID_feo'], 0) > 0 )
 
-    RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
-    {
-      "codigo_optimizado": "...",
-      "reporte": "- Explicación 1\\n- Explicación 2",
-      "script_prueba": "print('test')",
-      "metricas": {
-        "complejidad_espacial": "O(n)",
-        "porcentaje_ahorro_ram": 85,
-        "metodo_usado": "Hash Map y Generadores"
-      }
-    }"""
+   RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
+  {
+    "codigo_optimizado": "...",
+    "reporte": "- Explicación 1\n- Explicación 2",
+    "script_prueba": "print('test')",
+    "metricas": {
+      "complejidad_espacial": "<CALCULA_LA_COMPLEJIDAD_REAL: ej O(1), O(n), O(log n)>",
+      "metodo_usado": "<DESCRIBE_BREVEMENTE_EL_METODO_REAL_APLICADO>"
+    }
+  }
 
     try:
         chat_completion = cliente_groq.chat.completions.create(
@@ -89,7 +88,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
                 {"role": "user", "content": f"Optimiza este código:\n\n{peticion.codigo_sucio}"}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.1,
+            temperature=0.0,
             response_format={"type": "json_object"} 
         )
         
