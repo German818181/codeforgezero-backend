@@ -8,8 +8,14 @@ from groq import Groq
 from sandbox import probar_codigo_aislado
 import time
 import tracemalloc
+import gc  # <--- FIX 1: Importamos el recolector de basura
 
 def medir_codigo(funcion_a_medir, nombre_version):
+    # --- FIX 2: Tiramos la cadena y limpiamos la RAM residual antes de medir ---
+    gc.collect() 
+    tracemalloc.clear_traces() 
+    # -------------------------------------------------------------------------
+    
     tracemalloc.start()
     inicio_tiempo = time.time()
     
@@ -70,10 +76,10 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
         return ( {'Usuario': u['nombre'], 'Total': totales_dict.get(u['ID_feo'], 0)} 
                  for u in obtener_usuarios() if totales_dict.get(u['ID_feo'], 0) > 0 )
 
-   RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
+    RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
   {
     "codigo_optimizado": "...",
-    "reporte": "- Explicación 1\n- Explicación 2",
+    "reporte": "- Explicación 1\\n- Explicación 2",
     "script_prueba": "print('test')",
     "metricas": {
       "complejidad_espacial": "<CALCULA_LA_COMPLEJIDAD_REAL: ej O(1), O(n), O(log n)>",
@@ -82,6 +88,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
   }"""
 
     try:
+        # --- FIX 3: Bloqueo de Alucinación y No-Determinismo en Groq ---
         chat_completion = cliente_groq.chat.completions.create(
             messages=[
                 {"role": "system", "content": prompt_maestro},
@@ -89,8 +96,11 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.0,
+            top_p=0.01,  
+            seed=42,     
             response_format={"type": "json_object"} 
         )
+        # ---------------------------------------------------------------
         
         respuesta_texto = chat_completion.choices[0].message.content
         resultado_json = json.loads(respuesta_texto)
@@ -118,6 +128,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
         else:
             ahorro_ram = 99.9
         print("------------------------------------------\n")
+        
         # 🔥 EL PARCHE MÁGICO: Pisamos la estimación de la IA con el cálculo real
         resultado_json["metricas"]["porcentaje_ahorro_ram"] = round(ahorro_ram, 1)
 
