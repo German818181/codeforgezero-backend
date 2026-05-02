@@ -8,13 +8,11 @@ from groq import Groq
 from sandbox import probar_codigo_aislado
 import time
 import tracemalloc
-import gc  # <--- FIX 1: Importamos el recolector de basura
+import gc
 
 def medir_codigo(funcion_a_medir, nombre_version):
-    # --- FIX 2: Tiramos la cadena y limpiamos la RAM residual antes de medir ---
     gc.collect() 
     tracemalloc.clear_traces() 
-    # -------------------------------------------------------------------------
     
     tracemalloc.start()
     inicio_tiempo = time.time()
@@ -36,7 +34,7 @@ def medir_codigo(funcion_a_medir, nombre_version):
 
 load_dotenv()
 
-app = FastAPI(title="CodeForgeZero Engine", version="2.0")
+app = FastAPI(title="CodeForgeZero Engine", version="3.0_MultiAgent")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,46 +51,64 @@ class PeticionOptimizacion(BaseModel):
 
 @app.post("/api/optimize")
 def optimizar_codigo(peticion: PeticionOptimizacion):
-    print("🚀 Mandando código a Groq con Prompt Maestro de Élite...")
+    print("🚀 Iniciando Pipeline Multi-Agente CodeForgeZero...")
     
-    # EL NUEVO CEREBRO ACTUALIZADO
-    prompt_maestro = """Rol: Arquitecto Cloud FinOps de Élite.
-    Objetivo: Optimizar código Python reduciendo memoria a O(n) y CPU a O(1), SIN romper la lógica original.
-
-    REGLAS DE ORO (ESTRICTAS):
-    1. PROHIBIDO: NUNCA iteres un generador o lista múltiples veces dentro de un bucle for o comprensión.
-    2. REGLA 2 (ACTUALIZADA): Si detectas bucles anidados, DEBES aplanar la estructura. No uses diccionarios de listas si puedes usar diccionarios de valores únicos o comprensiones de listas directas. El ahorro de RAM debe ser la prioridad absoluta sobre la legibilidad.
-    3. FORMATO (ESTRICTO): El campo "reporte" DEBE ser una lista estructurada con guiones ('- '). PROHIBIDO usar párrafos.
-    4. ESCAPE DE CARACTERES: Asegúrate de escapar correctamente las comillas y saltos de línea (\\n) para que el JSON sea válido.
-    5. ANTI-COSMÉTICA (CRÍTICO): Eres un auditor FinOps, no un Linter. IGNORA la estética. NO renombres funciones ni variables, NO corrijas estilos de escritura (camelCase/snake_case/mayúsculas), y mantén los nombres originales por más aberrantes que sean. Tu ÚNICO trabajo es modificar la lógica algorítmica y la estructura de datos.
-    EJEMPLO DE MODELO (SIGUE ESTA ESTRUCTURA):
-    def CALCULAR_totales_Feo():
-        # 1. Agrupar primero (O(n))
-        totales_dict = {}
-        for t in obtener_transacciones():
-            totales_dict[t['uSeR_iD']] = totales_dict.get(t['uSeR_iD'], 0) + t['monto']
-            
-        # 2. Generar reporte rápido (O(1))
-        return ( {'Usuario': u['nombre'], 'Total': totales_dict.get(u['ID_feo'], 0)} 
-                 for u in obtener_usuarios() if totales_dict.get(u['ID_feo'], 0) > 0 )
-
-    RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
-  {
-    "codigo_optimizado": "...",
-    "reporte": "- Explicación 1\\n- Explicación 2",
-    "script_prueba": "print('test')",
-    "metricas": {
-      "complejidad_espacial": "<CALCULA_LA_COMPLEJIDAD_REAL: ej O(1), O(n), O(log n)>",
-      "metodo_usado": "<DESCRIBE_BREVEMENTE_EL_METODO_REAL_APLICADO>"
-    }
-  }"""
-
     try:
-        # --- FIX 3: Bloqueo de Alucinación y No-Determinismo en Groq ---
+        # =================================================================
+        # AGENTE 1: EL SABUESO (Inspector de Código)
+        # =================================================================
+        print("🔍 Paso 1: Agente Sabueso analizando el código...")
+        prompt_sabueso = """Rol: Inspector Técnico.
+        Tu ÚNICA tarea es leer el código Python provisto y detectar bucles ineficientes (for dentro de for) o búsquedas repetitivas en listas.
+        Reglas:
+        1. NO modifiques la lógica ni reescribas el código.
+        2. Solo debes insertar este comentario EXACTAMENTE arriba del cuello de botella detectado: '# BOMBA_NUCLEAR: BUCLE ANIDADO DETECTADO. APLICAR HASH MAP / DICCIONARIO AQUI.'
+        3. Devuelve únicamente el código original con tus comentarios insertados. Nada de texto extra."""
+
+        respuesta_sabueso = cliente_groq.chat.completions.create(
+            messages=[
+                {"role": "system", "content": prompt_sabueso},
+                {"role": "user", "content": peticion.codigo_sucio}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.0,
+            top_p=0.01,
+            seed=42
+            # Sin JSON format, queremos texto plano (código comentado)
+        )
+        
+        codigo_con_pistas = respuesta_sabueso.choices[0].message.content
+        print("🎯 Pistas insertadas con éxito. Pasando al Arquitecto...")
+
+        # =================================================================
+        # AGENTE 2: EL ARQUITECTO (Refactorizador FinOps)
+        # =================================================================
+        print("⚙️ Paso 2: Agente Arquitecto refactorizando...")
+        prompt_maestro = """Rol: Arquitecto Cloud FinOps de Élite.
+        Objetivo: Optimizar código Python reduciendo memoria a O(n) y CPU a O(1), SIN romper la lógica original.
+        El código que vas a recibir ya tiene comentarios de otro auditor indicando dónde están las '# BOMBA_NUCLEAR'. Sigue esas pistas.
+
+        REGLAS DE ORO (ESTRICTAS):
+        1. Usa diccionarios (Hash Maps) o conjuntos (Sets) para eliminar los bucles anidados marcados.
+        2. DEBES aplanar la estructura. El ahorro de RAM debe ser la prioridad absoluta.
+        3. FORMATO (ESTRICTO): El campo "reporte" DEBE ser una lista estructurada con guiones ('- ').
+        4. ANTI-COSMÉTICA (CRÍTICO): IGNORA la estética. NO renombres funciones ni variables.
+
+        RESPONDE ÚNICAMENTE CON UN JSON VÁLIDO:
+        {
+          "codigo_optimizado": "...",
+          "reporte": "- Explicación 1\\n- Explicación 2",
+          "script_prueba": "print('test')",
+          "metricas": {
+            "complejidad_espacial": "<CALCULA_LA_COMPLEJIDAD_REAL: ej O(1), O(n)>",
+            "metodo_usado": "<DESCRIBE_BREVEMENTE_EL_METODO_APLICADO>"
+          }
+        }"""
+
         chat_completion = cliente_groq.chat.completions.create(
             messages=[
                 {"role": "system", "content": prompt_maestro},
-                {"role": "user", "content": f"Optimiza este código:\n\n{peticion.codigo_sucio}"}
+                {"role": "user", "content": codigo_con_pistas} # Le pasamos el código con el machete
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.0,
@@ -100,12 +116,14 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
             seed=42,     
             response_format={"type": "json_object"} 
         )
-        # ---------------------------------------------------------------
         
         respuesta_texto = chat_completion.choices[0].message.content
         resultado_json = json.loads(respuesta_texto)
         
-        print("✅ ¡IA respondió con éxito! Iniciando auditoría de métricas...")
+        # =================================================================
+        # AUDITORÍA LOCAL DE RAM
+        # =================================================================
+        print("✅ Refactorización finalizada. Iniciando auditoría física de RAM...")
         
         def test_original():
             try:
@@ -119,7 +137,6 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
             except:
                 pass
 
-        print("\n--- AUDITORÍA AUTOMÁTICA CODEFORGEZERO ---")
         ram_mala, tiempo_malo = medir_codigo(test_original, "Ejecución original")
         ram_buena, tiempo_bueno = medir_codigo(test_optimizado, "Ejecución optimizada")
         
@@ -127,9 +144,7 @@ def optimizar_codigo(peticion: PeticionOptimizacion):
             ahorro_ram = ((ram_mala - ram_buena) / ram_mala) * 100
         else:
             ahorro_ram = 99.9
-        print("------------------------------------------\n")
-        
-        # 🔥 EL PARCHE MÁGICO: Pisamos la estimación de la IA con el cálculo real
+            
         resultado_json["metricas"]["porcentaje_ahorro_ram"] = round(ahorro_ram, 1)
 
         print("Mandando código al Coliseo...")
@@ -152,6 +167,4 @@ class CicdRequest(BaseModel):
 
 @app.post("/api/cicd/analyze")
 async def cicd_analyze(payload: CicdRequest):
-    codigo_nuevo = payload.code
-    # Aquí podrías usar un prompt similar si decides activar esta ruta
     return {"status": "success", "message": "Endpoint CI/CD activo"}
