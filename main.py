@@ -55,16 +55,19 @@ async def optimizar_codigo(peticion: PeticionOptimizacion):
     print("🚀 Conectando a GitHub Models (GPT-4o) - Ejecución Dual...")
 
     instruccion_sistema = """
-    Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
-    Refactoriza el código de Python para mejorar la eficiencia. Balancea el uso de RAM y CPU.
-    Si el código ya es óptimo o cambiarlo añade overhead innecesario, mantén la estructura básica y acláralo en el reporte.
-    DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, sin texto extra, sin markdown:
-    {
-        "codigo_optimizado": "string con el código",
-        "reporte": "breve explicación",
-        "metricas": {"metodo_usado": "explicación técnica"}
-    }
-    """
+Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
+Refactoriza el código de Python para mejorar la eficiencia. Balancea el uso de RAM y CPU.
+IMPORTANTE: mantené exactamente los mismos nombres de funciones y clases, y los mismos parámetros públicos del código original. Esto es crítico para poder probar ambas versiones con el mismo test.
+Si el código ya es óptimo o cambiarlo añade overhead innecesario, mantén la estructura básica y acláralo en el reporte.
+Además, generá un campo "codigo_test": un bloque de Python que invoque las funciones o clases principales del código con datos de ejemplo representativos (cientos o miles de elementos cuando aplique, para que cualquier diferencia de rendimiento sea medible). No debe imprimir nada, solo ejecutar las llamadas.
+DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, sin texto extra, sin markdown:
+{
+    "codigo_optimizado": "string con el código",
+    "codigo_test": "string con el arnés de pruebas que invoca las funciones reales",
+    "reporte": "breve explicación",
+    "metricas": {"metodo_usado": "explicación técnica"}
+}
+"""
 
     try:
         respuesta = client.chat.completions.create(
@@ -86,8 +89,17 @@ async def optimizar_codigo(peticion: PeticionOptimizacion):
         datos_ia = json.loads(texto_ia.strip())
 
         # Auditoría de hardware en paralelo
-        def test_original(): exec(peticion.codigo_sucio, {})
-        def test_optimizado(): exec(datos_ia.get("codigo_optimizado", ""), {})
+        codigo_test = datos_ia.get("codigo_test", "")
+
+ def test_original():
+    ns = {}
+    exec(peticion.codigo_sucio, ns)
+    exec(codigo_test, ns)
+
+def test_optimizado():
+    ns = {}
+    exec(datos_ia.get("codigo_optimizado", ""), ns)
+    exec(codigo_test, ns)
 
         ram_mala, tiempo_malo = medir_codigo(test_original, "Original")
         ram_buena, tiempo_bueno = medir_codigo(test_optimizado, "Optimizado")
