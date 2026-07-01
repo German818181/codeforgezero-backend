@@ -18,7 +18,7 @@ client = OpenAI(
     api_key=os.getenv("GITHUB_TOKEN")
 )
 
-app = FastAPI(title="CodeForgeZero Engine - V3 (Dual Metrics)")
+app = FastAPI(title="CodeForgeZero Engine - V4 (Multi-Run + Honesty Threshold)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,43 +28,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+UMBRAL_AHORRO_MINIMO = 5.0  # Si el ahorro es menor a esto, se reporta como "ya optimizado"
+CORRIDAS = 5                 # Cuántas veces se mide cada versión para promediar
+
 class PeticionOptimizacion(BaseModel):
     codigo_sucio: str
 
-def medir_codigo(funcion_a_medir, nombre_version):
-    gc.collect()
-    tracemalloc.clear_traces()
-    tracemalloc.start()
+def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
+    """Mide el rendimiento varias veces y devuelve el promedio para eliminar ruido del servidor."""
+    rams = []
+    tiempos = []
 
-    inicio_tiempo = time.perf_counter()
-    try:
-        funcion_a_medir()
-    except Exception as e:
-        print(f"Error en ejecución {nombre_version}: {e}")
+    for i in range(corridas):
+        gc.collect()
+        tracemalloc.clear_traces()
+        tracemalloc.start()
 
-    fin_tiempo = time.perf_counter()
-    _, pico_memoria = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+        inicio_tiempo = time.perf_counter()
+        try:
+            funcion_a_medir()
+        except Exception as e:
+            print(f"Error en ejecución {nombre_version} (corrida {i+1}): {e}")
 
-    return pico_memoria / (1024 * 1024), fin_tiempo - inicio_tiempo
+        fin_tiempo = time.perf_counter()
+        _, pico_memoria = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        rams.append(pico_memoria / (1024 * 1024))
+        tiempos.append(fin_tiempo - inicio_tiempo)
+
+    return sum(rams) / len(rams), sum(tiempos) / len(tiempos)
 
 @app.post("/api/optimize")
 async def optimizar_codigo(peticion: PeticionOptimizacion):
-    print("🚀 Conectando a GitHub Models (GPT-4o) - Ejecución Dual...")
+    print(f"🚀 Conectando a GitHub Models (GPT-4o) - Multi-Run ({CORRIDAS} corridas)...")
 
-    instruccion_sistema = """
+    instruccion_sistema = f"""
 Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
-Refactoriza el código de Python para mejorar la eficiencia. Balancea el uso de RAM y CPU.
-IMPORTANTE: mantené exactamente los mismos nombres de funciones y clases, y los mismos parámetros públicos del código original. Esto es crítico para poder probar ambas versiones con el mismo test.
-Si el código ya es óptimo o cambiarlo añade overhead innecesario, mantén la estructura básica y acláralo en el reporte.
-Además, generá un campo "codigo_test": un bloque de Python que invoque las funciones o clases principales del código con datos de ejemplo representativos (cientos o miles de elementos cuando aplique, para que cualquier diferencia de rendimiento sea medible). No debe imprimir nada, solo ejecutar las llamadas.
-DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, sin texto extra, sin markdown:
-{
-    "codigo_optimizado": "string con el código",
-    "codigo_test": "string con el arnés de pruebas que invoca las funciones reales",
-    "reporte": "breve explicación",
-    "metricas": {"metodo_usado": "explicación técnica"}
-}
+Tu trabajo es refactorizar código Python para mejorar su eficiencia real en RAM y CPU.
+
+REGLAS CRÍTICAS:
+1. Mantené exactamente los mismos nombres de funciones, clases y parámetros públicos del código original. Esto es indispensable para que el test funcione en ambas versiones.
+2. Si el código ya está bien optimizado y tus cambios generarían menos de {UMBRAL_AHORRO_MINIMO}% de mejora real, devolvé el código ORIGINAL sin modificar y explicalo en el reporte. No hagas cambios cosméticos que no mejoran el rendimiento.
+3. Generá un campo "codigo_test": un bloque Python que instancie las clases e invoque las funciones principales con datos de ejemplo representativos (mínimo 500-1000 elementos para que la diferencia de rendimiento sea medible). No debe imprimir nada ni usar assertions que puedan fallar.
+4. El campo "codigo_optimizado" debe ser el código completo, listo para ejecutar.
+
+DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin texto extra, sin markdown:
+{{
+    "codigo_optimizado": "string con el código completo",
+    "codigo_test": "string con el arnés de pruebas",
+    "ya_optimizado": false,
+    "reporte": "explicación de qué se cambió y por qué, o por qué no se cambió nada",
+    "metricas": {{"metodo_usado": "explicación técnica del método de optimización aplicado"}}
+}}
 """
 
     try:
@@ -86,7 +102,6 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, s
 
         datos_ia = json.loads(texto_ia.strip())
 
-        # Arnés de pruebas generado por la IA
         codigo_test = datos_ia.get("codigo_test", "")
 
         def test_original():
@@ -99,20 +114,32 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, s
             exec(datos_ia.get("codigo_optimizado", ""), ns)
             exec(codigo_test, ns)
 
-        ram_mala, tiempo_malo = medir_codigo(test_original, "Original")
-        ram_buena, tiempo_bueno = medir_codigo(test_optimizado, "Optimizado")
+        print("📊 Midiendo rendimiento original...")
+        ram_mala, tiempo_malo = medir_codigo_promedio(test_original, "Original")
+
+        print("📊 Midiendo rendimiento optimizado...")
+        ram_buena, tiempo_bueno = medir_codigo_promedio(test_optimizado, "Optimizado")
 
         # Cálculos de impacto porcentual
         ahorro_ram = ((ram_mala - ram_buena) / ram_mala * 100) if ram_mala > 0 else 0.0
         ahorro_tiempo = ((tiempo_malo - tiempo_bueno) / tiempo_malo * 100) if tiempo_malo > 0 else 0.0
 
+        # Umbral de honestidad: si los ahorros son menores al mínimo, forzamos a 0
+        ahorro_ram_final = max(round(ahorro_ram, 1), 0.0) if ahorro_ram >= UMBRAL_AHORRO_MINIMO else 0.0
+        ahorro_tiempo_final = max(round(ahorro_tiempo, 1), 0.0) if ahorro_tiempo >= UMBRAL_AHORRO_MINIMO else 0.0
+
+        ya_optimizado = datos_ia.get("ya_optimizado", False) or (ahorro_ram_final == 0.0 and ahorro_tiempo_final == 0.0)
+
+        print(f"✅ RAM: {ahorro_ram_final}% | CPU: {ahorro_tiempo_final}% | Ya optimizado: {ya_optimizado}")
+
         if "metricas" not in datos_ia:
             datos_ia["metricas"] = {}
 
-        datos_ia["metricas"]["porcentaje_ahorro_ram"] = round(ahorro_ram, 1)
-        datos_ia["metricas"]["porcentaje_ahorro_cpu"] = round(ahorro_tiempo, 1)
+        datos_ia["metricas"]["porcentaje_ahorro_ram"] = ahorro_ram_final
+        datos_ia["metricas"]["porcentaje_ahorro_cpu"] = ahorro_tiempo_final
         datos_ia["metricas"]["tiempo_original_seg"] = round(tiempo_malo, 6)
         datos_ia["metricas"]["tiempo_optimizado_seg"] = round(tiempo_bueno, 6)
+        datos_ia["metricas"]["ya_optimizado"] = ya_optimizado
 
         return {
             "status": "exito",
