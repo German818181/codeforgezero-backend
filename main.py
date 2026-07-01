@@ -35,26 +35,24 @@ def medir_codigo(funcion_a_medir, nombre_version):
     gc.collect()
     tracemalloc.clear_traces()
     tracemalloc.start()
-    
-    # Captura precisa del tiempo de inicio
-    inicio_tiempo = time.perf_counter() 
+
+    inicio_tiempo = time.perf_counter()
     try:
         funcion_a_medir()
     except Exception as e:
         print(f"Error en ejecución {nombre_version}: {e}")
-    
-    # Captura precisa del tiempo de finalización
+
     fin_tiempo = time.perf_counter()
     _, pico_memoria = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    
+
     return pico_memoria / (1024 * 1024), fin_tiempo - inicio_tiempo
 
 @app.post("/api/optimize")
 async def optimizar_codigo(peticion: PeticionOptimizacion):
     print("🚀 Conectando a GitHub Models (GPT-4o) - Ejecución Dual...")
 
-   instruccion_sistema = """
+    instruccion_sistema = """
 Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
 Refactoriza el código de Python para mejorar la eficiencia. Balancea el uso de RAM y CPU.
 IMPORTANTE: mantené exactamente los mismos nombres de funciones y clases, y los mismos parámetros públicos del código original. Esto es crítico para poder probar ambas versiones con el mismo test.
@@ -80,38 +78,37 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura exacta, s
         )
 
         texto_ia = respuesta.choices[0].message.content.strip()
-        
+
         if texto_ia.startswith("```json"):
             texto_ia = texto_ia.replace("```json", "", 1)
         if texto_ia.endswith("```"):
             texto_ia = texto_ia.rsplit("```", 1)[0]
-            
+
         datos_ia = json.loads(texto_ia.strip())
 
-        # Auditoría de hardware en paralelo
+        # Arnés de pruebas generado por la IA
         codigo_test = datos_ia.get("codigo_test", "")
 
- def test_original():
-    ns = {}
-    exec(peticion.codigo_sucio, ns)
-    exec(codigo_test, ns)
+        def test_original():
+            ns = {}
+            exec(peticion.codigo_sucio, ns)
+            exec(codigo_test, ns)
 
-def test_optimizado():
-    ns = {}
-    exec(datos_ia.get("codigo_optimizado", ""), ns)
-    exec(codigo_test, ns)
+        def test_optimizado():
+            ns = {}
+            exec(datos_ia.get("codigo_optimizado", ""), ns)
+            exec(codigo_test, ns)
 
         ram_mala, tiempo_malo = medir_codigo(test_original, "Original")
         ram_buena, tiempo_bueno = medir_codigo(test_optimizado, "Optimizado")
-        
+
         # Cálculos de impacto porcentual
         ahorro_ram = ((ram_mala - ram_buena) / ram_mala * 100) if ram_mala > 0 else 0.0
         ahorro_tiempo = ((tiempo_malo - tiempo_bueno) / tiempo_malo * 100) if tiempo_malo > 0 else 0.0
 
-        # Inyectamos los resultados reales en el JSON para el frontend
         if "metricas" not in datos_ia:
             datos_ia["metricas"] = {}
-            
+
         datos_ia["metricas"]["porcentaje_ahorro_ram"] = round(ahorro_ram, 1)
         datos_ia["metricas"]["porcentaje_ahorro_cpu"] = round(ahorro_tiempo, 1)
         datos_ia["metricas"]["tiempo_original_seg"] = round(tiempo_malo, 6)
@@ -122,7 +119,7 @@ def test_optimizado():
             "datos_optimizados": datos_ia,
             "resultado_ejecucion_real": probar_codigo_aislado(datos_ia.get("codigo_optimizado", ""))
         }
-        
+
     except Exception as e:
         print(f"❌ Error con el motor: {e}")
         return {"error": str(e)}
