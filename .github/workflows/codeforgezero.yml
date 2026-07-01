@@ -1,41 +1,116 @@
 name: CodeForgeZero DevSecOps Pipeline
 
-on: [push] # Se dispara cada vez que alguien sube código
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   auditoria-ia:
     runs-on: ubuntu-latest
     steps:
-      - name: Descargar el código nuevo
+      - name: Descargar el código con historial completo
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Instalar herramientas
         run: pip install requests
 
-      - name: Consultar al Patovica (Render)
+      - name: Analizar archivos modificados y comentar en el PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python -c "
-          import requests, sys
-          
-          # Código con complejidad O(1) absoluta. El patovica no tiene por dónde atacar.
-          codigo = '''
-          def sumar_numeros(n):
-              return n * (n - 1) // 2
-          '''
-          
-          url = 'https://codeforgezero-backend.onrender.com/api/cicd/analyze'
-          
-          print('🚀 Enviando código PERFECTO a la IA de CodeForgeZero...')
-          res = requests.post(url, json={'code': codigo, 'language': 'python'})
-          data = res.json()
-          
-          ia_respuesta = data.get('webhook_response', {})
-          
-          if ia_respuesta.get('aprobado') == False:
-              print('❌ CÓDIGO RECHAZADO POR LA IA')
-              print('Motivo:', ia_respuesta.get('motivo'))
-              sys.exit(1)
+          cat > analizar.py << 'PYEOF'
+          import subprocess, requests, sys, os
+
+          url = 'https://codeforgezero-backend.onrender.com/api/optimize'
+          github_token = os.environ['GITHUB_TOKEN']
+          repo = os.environ['REPO']
+          pr_number = os.environ['PR_NUMBER']
+          base_sha = os.environ['BASE_SHA']
+          head_sha = os.environ['HEAD_SHA']
+
+          resultado = subprocess.run(
+              ['git', 'diff', '--name-only', base_sha, head_sha],
+              capture_output=True, text=True
+          )
+          archivos = [f for f in resultado.stdout.splitlines() if f.endswith('.py')]
+
+          if not archivos:
+              print('No se modificaron archivos Python en este push.')
+              sys.exit(0)
+
+          comentario_partes = ['## 🤖 CodeForgeZero — Reporte de Auditoría', '']
+          hubo_resultados = False
+          bt = chr(96)
+          triple = bt * 3
+
+          for archivo in archivos:
+              if not os.path.exists(archivo):
+                  continue
+
+              with open(archivo, 'r', encoding='utf-8') as f:
+                  codigo = f.read()
+
+              print(f'Enviando {archivo} a CodeForgeZero...')
+              try:
+                  res = requests.post(url, json={'codigo_sucio': codigo}, timeout=120)
+                  data = res.json()
+              except Exception as e:
+                  print(f'Error de conexion con el motor: {e}')
+                  continue
+
+              if data.get('status') != 'exito':
+                  print(f'El motor no pudo procesar {archivo}')
+                  continue
+
+              datos = data['datos_optimizados']
+              metricas = datos.get('metricas', {})
+              ram = metricas.get('porcentaje_ahorro_ram', 0)
+              cpu = metricas.get('porcentaje_ahorro_cpu', 0)
+              reporte = datos.get('reporte', '')
+              codigo_optimizado = datos.get('codigo_optimizado', '')
+
+              hubo_resultados = True
+              comentario_partes.append(f'### {bt}{archivo}{bt}')
+              comentario_partes.append(f'**RAM:** {ram}%  |  **CPU:** {cpu}%')
+              comentario_partes.append('')
+              comentario_partes.append(reporte)
+              comentario_partes.append('')
+              comentario_partes.append('<details><summary>Ver código optimizado sugerido</summary>')
+              comentario_partes.append('')
+              comentario_partes.append(f'{triple}python')
+              comentario_partes.append(codigo_optimizado)
+              comentario_partes.append(triple)
+              comentario_partes.append('</details>')
+              comentario_partes.append('')
+              comentario_partes.append('---')
+
+          if not hubo_resultados:
+              print('No hubo resultados para comentar.')
+              sys.exit(0)
+
+          cuerpo_comentario = chr(10).join(comentario_partes)
+
+          api_url = f'https://api.github.com/repos/{repo}/issues/{pr_number}/comments'
+          headers = {
+              'Authorization': f'Bearer {github_token}',
+              'Accept': 'application/vnd.github+json'
+          }
+          resp = requests.post(api_url, headers=headers, json={'body': cuerpo_comentario})
+
+          if resp.status_code == 201:
+              print('Comentario publicado en el PR con éxito.')
           else:
-              print('✅ PATOVICA FELIZ. Código aprobado, pasando a producción.')
-          "
+              print(f'Error al comentar en el PR: {resp.status_code} - {resp.text}')
+          PYEOF
+          python analizar.py
         shell: bash

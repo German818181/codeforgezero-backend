@@ -54,7 +54,7 @@ def medir_codigo(funcion_a_medir, nombre_version):
 async def optimizar_codigo(peticion: PeticionOptimizacion):
     print("🚀 Conectando a GitHub Models (GPT-4o) - Ejecución Dual...")
 
-    instruccion_sistema = """
+   instruccion_sistema = """
 Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
 Refactoriza el código de Python para mejorar la eficiencia. Balancea el uso de RAM y CPU.
 IMPORTANTE: mantené exactamente los mismos nombres de funciones y clases, y los mismos parámetros públicos del código original. Esto es crítico para poder probar ambas versiones con el mismo test.
