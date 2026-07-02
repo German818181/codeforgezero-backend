@@ -17,7 +17,7 @@ client = OpenAI(
     api_key=os.getenv("GITHUB_TOKEN")
 )
 
-app = FastAPI(title="CodeForgeZero Engine - V5 (Honest Metrics)")
+app = FastAPI(title="CodeForgeZero Engine - V6 (Warmup + Noise Reduction)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +36,8 @@ class PeticionOptimizacion(BaseModel):
 def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
     """
     Mide rendimiento varias veces y promedia.
+    Incluye una corrida de "warmup" descartada antes de medir, para eliminar
+    el ruido de arranque en frío (caché, memoria, primer bytecode compilado, etc.)
     Retorna (rams_promedio, tiempos_promedio, error_import)
     Si hay un ImportError, retorna (0, 0, nombre_modulo_faltante)
     """
@@ -43,6 +45,17 @@ def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
     tiempos = []
     modulo_faltante = None
 
+    # --- Warmup: se ejecuta una vez y se descarta ---
+    try:
+        funcion_a_medir()
+    except ModuleNotFoundError as e:
+        modulo_faltante = str(e).replace("No module named ", "").strip("'")
+        print(f"⚠️ Librería externa no disponible en sandbox ({nombre_version}): {modulo_faltante}")
+        return 0.0, 0.0, modulo_faltante
+    except Exception as e:
+        print(f"Error en warmup {nombre_version}: {e}")
+
+    # --- Mediciones reales ---
     for i in range(corridas):
         gc.collect()
         tracemalloc.clear_traces()
@@ -82,7 +95,7 @@ Tu trabajo es refactorizar código Python para mejorar su eficiencia real en RAM
 REGLAS CRÍTICAS:
 1. Mantené exactamente los mismos nombres de funciones, clases y parámetros públicos del código original.
 2. Si el código ya está bien optimizado y tus cambios generarían menos de {UMBRAL_AHORRO_MINIMO}% de mejora real, devolvé el código ORIGINAL sin modificar y explicalo en el reporte.
-3. Generá un campo "codigo_test": un bloque Python que instancie las clases e invoque las funciones principales con datos de ejemplo representativos (mínimo 500-1000 elementos). No debe imprimir nada ni usar assertions que puedan fallar.
+3. Generá un campo "codigo_test": un bloque Python que instancie las clases e invoque las funciones principales con datos de ejemplo representativos. Usá un volumen generoso de datos (5000-10000 elementos cuando la estructura lo permita) para que cualquier diferencia real de rendimiento sea claramente medible por encima del ruido normal de ejecución. No debe imprimir nada ni usar assertions que puedan fallar.
 4. El campo "codigo_optimizado" debe ser el código completo, listo para ejecutar.
 
 DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin texto extra, sin markdown:
