@@ -3,6 +3,7 @@ import time
 import tracemalloc
 import gc
 import json
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,7 +18,10 @@ client = OpenAI(
     api_key=os.getenv("GITHUB_TOKEN")
 )
 
-app = FastAPI(title="CodeForgeZero Engine - V6 (Warmup + Noise Reduction)")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+app = FastAPI(title="CodeForgeZero Engine - V7 (Historial en Supabase)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +36,43 @@ CORRIDAS = 5
 
 class PeticionOptimizacion(BaseModel):
     codigo_sucio: str
+    archivo: str = "landing_directo"
+    repositorio: str = "prueba_manual"
+
+def guardar_en_supabase(archivo, repositorio, ahorro_ram, ahorro_cpu, ya_optimizado, metricas_disponibles, metodo_usado):
+    """
+    Guarda un registro del análisis en la tabla 'analisis' de Supabase.
+    Nunca lanza excepciones hacia afuera — si falla, solo lo loguea,
+    para que un problema de historial no rompa la respuesta al cliente.
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        print("⚠️ Supabase no configurado (faltan variables de entorno) — se omite el guardado de historial.")
+        return
+
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/analisis"
+        headers = {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+        payload = {
+            "archivo": archivo,
+            "repositorio": repositorio,
+            "ahorro_ram": ahorro_ram,
+            "ahorro_cpu": ahorro_cpu,
+            "ya_optimizado": ya_optimizado,
+            "metricas_disponibles": metricas_disponibles,
+            "metodo_usado": metodo_usado,
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code in (200, 201):
+            print("💾 Análisis guardado en historial (Supabase).")
+        else:
+            print(f"⚠️ No se pudo guardar en Supabase: {resp.status_code} - {resp.text}")
+    except Exception as e:
+        print(f"⚠️ Error guardando en Supabase: {e}")
 
 def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
     """
@@ -168,6 +209,16 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
             datos_ia["metricas"]["mensaje_metricas"] = None
 
             print(f"✅ RAM: {ahorro_ram_final}% | CPU: {ahorro_tiempo_final}% | Ya optimizado: {ya_optimizado}")
+
+            guardar_en_supabase(
+                archivo=peticion.archivo,
+                repositorio=peticion.repositorio,
+                ahorro_ram=ahorro_ram_final,
+                ahorro_cpu=ahorro_tiempo_final,
+                ya_optimizado=ya_optimizado,
+                metricas_disponibles=True,
+                metodo_usado=datos_ia["metricas"].get("metodo_usado"),
+            )
         else:
             # Librerías externas no disponibles — refactor válido pero sin métricas
             datos_ia["metricas"]["porcentaje_ahorro_ram"] = None
@@ -177,6 +228,16 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
             datos_ia["metricas"]["mensaje_metricas"] = f"Métricas no disponibles — el código usa '{modulo_faltante}', una librería externa no instalada en el sandbox. El refactor es correcto pero no podemos medir el ahorro exacto."
 
             print(f"⚠️ Refactor entregado sin métricas — librería faltante: {modulo_faltante}")
+
+            guardar_en_supabase(
+                archivo=peticion.archivo,
+                repositorio=peticion.repositorio,
+                ahorro_ram=None,
+                ahorro_cpu=None,
+                ya_optimizado=False,
+                metricas_disponibles=False,
+                metodo_usado=datos_ia["metricas"].get("metodo_usado"),
+            )
 
         return {
             "status": "exito",
