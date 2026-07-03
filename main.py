@@ -156,7 +156,8 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
                 {"role": "system", "content": instruccion_sistema},
                 {"role": "user", "content": peticion.codigo_sucio}
             ],
-            temperature=0.1
+            temperature=0.1,
+            timeout=45.0
         )
 
         texto_ia = respuesta.choices[0].message.content.strip()
