@@ -21,7 +21,7 @@ client = OpenAI(
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-app = FastAPI(title="CodeForgeZero Engine - V7 (Historial en Supabase)")
+app = FastAPI(title="CodeForgeZero Engine - V8 (Corridas Adaptativas)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,11 +74,12 @@ def guardar_en_supabase(archivo, repositorio, ahorro_ram, ahorro_cpu, ya_optimiz
     except Exception as e:
         print(f"⚠️ Error guardando en Supabase: {e}")
 
-def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
+def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas_max=CORRIDAS):
     """
     Mide rendimiento varias veces y promedia.
-    Incluye una corrida de "warmup" descartada antes de medir, para eliminar
-    el ruido de arranque en frío (caché, memoria, primer bytecode compilado, etc.)
+    Incluye una corrida de "warmup" que además sirve para decidir CUÁNTAS
+    mediciones reales hacer: código lento necesita menos repeticiones
+    (el ruido relativo ya es bajo), código rápido necesita más.
     Retorna (rams_promedio, tiempos_promedio, error_import)
     Si hay un ImportError, retorna (0, 0, nombre_modulo_faltante)
     """
@@ -86,7 +87,8 @@ def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
     tiempos = []
     modulo_faltante = None
 
-    # --- Warmup: se ejecuta una vez y se descarta ---
+    # --- Warmup: se ejecuta una vez, se descarta, y su duración decide las corridas ---
+    inicio_warmup = time.perf_counter()
     try:
         funcion_a_medir()
     except ModuleNotFoundError as e:
@@ -95,6 +97,18 @@ def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas=CORRIDAS):
         return 0.0, 0.0, modulo_faltante
     except Exception as e:
         print(f"Error en warmup {nombre_version}: {e}")
+    duracion_warmup = time.perf_counter() - inicio_warmup
+
+    # Código lento -> menos corridas (el ruido relativo ya es bajo, y cuesta caro repetir)
+    # Código rápido -> las corridas_max completas (necesita repetición para vencer el ruido)
+    if duracion_warmup > 3.0:
+        corridas = 2
+    elif duracion_warmup > 1.0:
+        corridas = 3
+    else:
+        corridas = corridas_max
+
+    print(f"⏱️ Warmup de {nombre_version}: {duracion_warmup:.2f}s -> usando {corridas} corridas")
 
     # --- Mediciones reales ---
     for i in range(corridas):
@@ -136,7 +150,7 @@ Tu trabajo es refactorizar código Python para mejorar su eficiencia real en RAM
 REGLAS CRÍTICAS:
 1. Mantené exactamente los mismos nombres de funciones, clases y parámetros públicos del código original.
 2. Si el código ya está bien optimizado y tus cambios generarían menos de {UMBRAL_AHORRO_MINIMO}% de mejora real, devolvé el código ORIGINAL sin modificar y explicalo en el reporte.
-3. Generá un campo "codigo_test": un bloque Python que instancie las clases e invoque las funciones principales con datos de ejemplo representativos. Usá un volumen generoso de datos (5000-10000 elementos cuando la estructura lo permita) para que cualquier diferencia real de rendimiento sea claramente medible por encima del ruido normal de ejecución. No debe imprimir nada ni usar assertions que puedan fallar.
+3. Generá un campo "codigo_test": un bloque Python que instancie las clases e invoque las funciones principales con datos de ejemplo representativos. Usá entre 1500 y 3000 elementos cuando la estructura lo permita — suficiente para que las diferencias reales de rendimiento sean medibles, sin ser tan grande que vuelva lenta la ejecución en casos con complejidad alta (O(n²) o peor). No debe imprimir nada ni usar assertions que puedan fallar.
 4. El campo "codigo_optimizado" debe ser el código completo, listo para ejecutar.
 
 DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin texto extra, sin markdown:
