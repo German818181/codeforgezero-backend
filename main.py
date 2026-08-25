@@ -13,9 +13,10 @@ from sandbox import probar_codigo_aislado
 
 load_dotenv()
 
+# --- NUEVO MOTOR: Conexión a OpenRouter ---
 client = OpenAI(
-    base_url="https://models.inference.ai.azure.com",
-    api_key=os.getenv("GITHUB_TOKEN")
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY")
 )
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -141,7 +142,7 @@ def medir_codigo_promedio(funcion_a_medir, nombre_version, corridas_max=CORRIDAS
 
 @app.post("/api/optimize")
 async def optimizar_codigo(peticion: PeticionOptimizacion):
-    print(f"🚀 Conectando a GitHub Models (GPT-4o) - V5 Honest Metrics...")
+    print(f"🚀 Conectando a OpenRouter (GLM) - V8 Honest Metrics...")
 
     instruccion_sistema = f"""
 Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento.
@@ -165,7 +166,8 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
 
     try:
         respuesta = client.chat.completions.create(
-            model="gpt-4o",
+            # OJO ACÁ: Si en OpenRouter el ID exacto es otro, cambialo.
+            model="z-ai/glm-5.2:free", 
             messages=[
                 {"role": "system", "content": instruccion_sistema},
                 {"role": "user", "content": peticion.codigo_sucio}
