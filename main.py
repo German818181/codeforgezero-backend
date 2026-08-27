@@ -167,7 +167,7 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
     try:
         respuesta = client.chat.completions.create(
             # OJO ACÁ: Si en OpenRouter el ID exacto es otro, cambialo.
-            model="z-ai/glm-5.2:free", 
+            model="nvidia/nemotron-3-ultra-550b-a55b:free", 
             messages=[
                 {"role": "system", "content": instruccion_sistema},
                 {"role": "user", "content": peticion.codigo_sucio}
