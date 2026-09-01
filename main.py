@@ -17,7 +17,9 @@ import hmac
 import hashlib
 import json
 from github import Github, Auth
+import FastAPI
 
+app = FastAPI()
 # Tus credenciales desde las Variables de Entorno de Render
 GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
 GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
