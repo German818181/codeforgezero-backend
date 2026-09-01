@@ -17,7 +17,6 @@ import hmac
 import hashlib
 import json
 from github import Github, Auth
-import FastAPI
 
 app = FastAPI()
 # Tus credenciales desde las Variables de Entorno de Render
