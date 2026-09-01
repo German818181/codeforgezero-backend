@@ -10,6 +10,78 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
 from sandbox import probar_codigo_aislado
+import os
+import requests
+from fastapi import APIRouter, Request, Header, HTTPException
+import hmac
+import hashlib
+import json
+from github import Github, Auth
+
+# Tus credenciales desde las Variables de Entorno de Render
+GITHUB_APP_ID = os.getenv("GITHUB_APP_ID")
+GITHUB_PRIVATE_KEY = os.getenv("GITHUB_PRIVATE_KEY")
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+# Si no encuentra el secreto en las variables, poné el tuyo por defecto para pruebas
+if not GITHUB_WEBHOOK_SECRET:
+    GITHUB_WEBHOOK_SECRET = "wqguf280@d398j92k3i2oqwk,@k3210d209k" 
+
+@app.post("/api/webhook")
+async def procesar_webhook_github(request: Request, x_hub_signature_256: str = Header(None)):
+    payload_body = await request.body()
+    
+    # 1. Seguridad (Verificamos que sea GitHub)
+    if not x_hub_signature_256:
+        raise HTTPException(status_code=401, detail="Falta firma")
+        
+    hash_esperado = "sha256=" + hmac.new(GITHUB_WEBHOOK_SECRET.encode(), payload_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(hash_esperado, x_hub_signature_256):
+        raise HTTPException(status_code=403, detail="Firma inválida")
+
+    data = json.loads(payload_body)
+    action = data.get("action")
+    
+    # 2. Solo actuamos si abren o actualizan un PR
+    if "pull_request" in data and action in ["opened", "synchronize"]:
+        repo_nombre = data["repository"]["full_name"]
+        pr_numero = data["pull_request"]["number"]
+        
+        # El ID de instalación es CLAVE: le dice a GitHub en qué cuenta específica está instalado tu bot
+        installation_id = data["installation"]["id"]
+        
+        print(f"🚀 Iniciando análisis para {repo_nombre} | PR #{pr_numero}")
+
+        try:
+            # 3. Autenticación de tu App
+            auth = Auth.AppAuth(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
+            
+            # Pedimos el "pase temporal" para este repo en particular
+            token_instalacion = auth.get_installation_auth(installation_id).token
+            
+            # 4. Descargar el Diff (Las líneas modificadas)
+            # Usamos la API de GitHub pidiéndole específicamente el formato "diff"
+            url_pr_api = data["pull_request"]["url"]
+            headers = {
+                "Authorization": f"Bearer {token_instalacion}",
+                "Accept": "application/vnd.github.v3.diff" # Esto es magia: nos da solo los cambios
+            }
+            
+            respuesta = requests.get(url_pr_api, headers=headers)
+            diff_codigo = respuesta.text
+            
+            print("✅ Diff descargado con éxito. Cantidad de caracteres:", len(diff_codigo))
+            
+            # --- AQUÍ VA LA CONEXIÓN CON NEMOTRON Y EL COLISEO ---
+            # texto_optimizado = enviar_a_nemotron(diff_codigo)
+            
+            return {"status": "procesando", "mensaje": "Código descargado"}
+
+        except Exception as e:
+            print(f"❌ Error al descargar el código: {e}")
+            raise HTTPException(status_code=500, detail="Error interno del bot")
+            
+    return {"status": "ignorado", "mensaje": "No es un evento de PR relevante"}
 
 load_dotenv()
 
