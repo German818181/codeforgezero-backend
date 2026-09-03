@@ -137,39 +137,48 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         raise HTTPException(status_code=403, detail="Firma inválida")
 
     data = json.loads(payload_body)
-    action = data.get("action")
     
-    if "pull_request" in data and action in ["opened", "synchronize"]:
-        repo_nombre = data["repository"]["full_name"]
-        pr_numero = data["pull_request"]["number"]
-        installation_id = data["installation"]["id"]
+    # --- FILTRO SANITIZADOR (Adiós errores 500 fantasma) ---
+    # Si el evento no es de un Pull Request o no es una acción que nos interese,
+    # respondemos 200 OK amablemente y cortamos acá.
+    if "pull_request" not in data:
+        return {"status": "ignorado", "mensaje": "No es un evento de Pull Request"}
         
-        print(f"🚀 Iniciando análisis para {repo_nombre} | PR #{pr_numero}")
+    action = data.get("action")
+    if action not in ["opened", "synchronize"]:
+        return {"status": "ignorado", "mensaje": f"Acción '{action}' no relevante para el análisis"}
+    # --------------------------------------------------------
 
-        try:
-            auth = Auth.AppAuth(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
-            token_instalacion = auth.get_installation_auth(installation_id).token
-            
-            url_pr_api = data["pull_request"]["url"]
-            headers = {
-                "Authorization": f"Bearer {token_instalacion}",
-                "Accept": "application/vnd.github.v3.diff"
-            }
-            
-            respuesta = requests.get(url_pr_api, headers=headers)
-            diff_codigo = respuesta.text
-            
-            print("✅ Diff descargado con éxito. Cantidad de caracteres:", len(diff_codigo))
-            
-            print("🧠 Enviando Diff a Nemotron...")
-            OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-            
-            headers_or = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            
-            prompt = f"""
+    repo_nombre = data["repository"]["full_name"]
+    pr_numero = data["pull_request"]["number"]
+    installation_id = data["installation"]["id"]
+    
+    print(f"🚀 Iniciando análisis para {repo_nombre} | PR #{pr_numero}")
+
+    try:
+        auth = Auth.AppAuth(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
+        token_instalacion = auth.get_installation_auth(installation_id).token
+        
+        url_pr_api = data["pull_request"]["url"]
+        headers = {
+            "Authorization": f"Bearer {token_instalacion}",
+            "Accept": "application/vnd.github.v3.diff"
+        }
+        
+        respuesta = requests.get(url_pr_api, headers=headers)
+        diff_codigo = respuesta.text
+        
+        print("✅ Diff descargado con éxito. Cantidad de caracteres:", len(diff_codigo))
+        
+        print("🧠 Enviando Diff a Nemotron...")
+        OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+        
+        headers_or = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        prompt = f"""
 Eres CodeForgeZero, un Arquitecto de Software Senior experto en optimización de rendimiento. 
 Tu trabajo es analizar este diff de un Pull Request y refactorizar el código para mejorar su eficiencia real en RAM, CPU y complejidad algorítmica (O(N)).
 
@@ -185,33 +194,33 @@ Tu respuesta será publicada directamente como un comentario en el PR de GitHub.
 Diff a analizar:
 {diff_codigo}
 """
-            
-            payload_or = {
-                "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            
-            res_ai = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_or, json=payload_or)
-            
-            if res_ai.status_code == 200:
-                comentario_ia = res_ai.json()["choices"][0]["message"]["content"]
-            else:
-                comentario_ia = "⚠️ CodeForgeZero no pudo analizar el código (Error en la IA)."
-                print("Error de OpenRouter:", res_ai.text)
+        
+        payload_or = {
+            "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
+        res_ai = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_or, json=payload_or)
+        
+        if res_ai.status_code == 200:
+            comentario_ia = res_ai.json()["choices"][0]["message"]["content"]
+        else:
+            comentario_ia = "⚠️ CodeForgeZero no pudo analizar el código (Error en la IA)."
+            print("Error de OpenRouter:", res_ai.text)
 
-            print("📝 Escribiendo comentario en el PR...")
-            gh = Github(token_instalacion)
-            repo = gh.get_repo(repo_nombre)
-            pr = repo.get_pull(pr_numero)
-            
-            pr.create_issue_comment(f"🔥 **Reporte de CodeForgeZero:**\n\n{comentario_ia}")
-            
-            print("✅ Comentario publicado con éxito en GitHub!")
-            return {"status": "completado", "mensaje": "PR analizado y comentado"}
+        print("📝 Escribiendo comentario en el PR...")
+        gh = Github(token_instalacion)
+        repo = gh.get_repo(repo_nombre)
+        pr = repo.get_pull(pr_numero)
+        
+        pr.create_issue_comment(f"🤖 **CodeForgeZero — Informe de Auditoría**\n\n{comentario_ia}")
+        
+        print("✅ Comentario publicado con éxito en GitHub!")
+        return {"status": "completado", "mensaje": "PR analizado y comentado"}
 
-        except Exception as e:
-            print(f"❌ Error crítico procesando el PR: {e}")
-            raise HTTPException(status_code=500, detail="Error interno del bot")
+    except Exception as e:
+        print(f"❌ Error crítico procesando el PR: {e}")
+        raise HTTPException(status_code=500, detail="Error interno del bot")
             
     return {"status": "ignorado", "mensaje": "No es un evento de PR relevante"}
 
