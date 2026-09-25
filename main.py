@@ -6,6 +6,7 @@ import json
 import requests
 import hmac
 import hashlib
+import traceback
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -138,16 +139,12 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
 
     data = json.loads(payload_body)
     
-    # --- FILTRO SANITIZADOR (Adiós errores 500 fantasma) ---
-    # Si el evento no es de un Pull Request o no es una acción que nos interese,
-    # respondemos 200 OK amablemente y cortamos acá.
     if "pull_request" not in data:
         return {"status": "ignorado", "mensaje": "No es un evento de Pull Request"}
         
     action = data.get("action")
     if action not in ["opened", "synchronize"]:
         return {"status": "ignorado", "mensaje": f"Acción '{action}' no relevante para el análisis"}
-    # --------------------------------------------------------
 
     repo_nombre = data["repository"]["full_name"]
     pr_numero = data["pull_request"]["number"]
@@ -156,7 +153,16 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
     print(f"🚀 Iniciando análisis para {repo_nombre} | PR #{pr_numero}")
 
     try:
-        auth = Auth.AppAuth(GITHUB_APP_ID, GITHUB_PRIVATE_KEY)
+        # Validaciones para Render
+        if not GITHUB_APP_ID:
+            raise ValueError("Falta GITHUB_APP_ID en las variables de entorno de Render")
+        if not GITHUB_PRIVATE_KEY:
+            raise ValueError("Falta GITHUB_PRIVATE_KEY en las variables de entorno de Render")
+
+        app_id_limpio = int(GITHUB_APP_ID)
+        llave_limpia = GITHUB_PRIVATE_KEY.replace('\\n', '\n')
+
+        auth = Auth.AppAuth(app_id_limpio, llave_limpia)
         token_instalacion = auth.get_installation_auth(installation_id).token
         
         url_pr_api = data["pull_request"]["url"]
@@ -172,7 +178,9 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         
         print("🧠 Enviando Diff a Nemotron...")
         OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-        
+        if not OPENROUTER_API_KEY:
+            raise ValueError("Falta OPENROUTER_API_KEY en las variables de entorno")
+            
         headers_or = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json"
@@ -219,7 +227,8 @@ Diff a analizar:
         return {"status": "completado", "mensaje": "PR analizado y comentado"}
 
     except Exception as e:
-        print(f"❌ Error crítico procesando el PR: {e}")
+        print(f"❌ Error crítico procesando el PR:")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno del bot")
             
     return {"status": "ignorado", "mensaje": "No es un evento de PR relevante"}
