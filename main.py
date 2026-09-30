@@ -162,8 +162,16 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         app_id_limpio = int(GITHUB_APP_ID)
         llave_limpia = GITHUB_PRIVATE_KEY.replace('\\n', '\n')
 
-        auth = Auth.AppAuth(app_id_limpio, llave_limpia)
-        token_instalacion = auth.get_installation_auth(installation_id).token
+        # --- CORRECCIÓN PYGITHUB ---
+        # 1. Creamos las instancias de Auth
+        app_auth = Auth.AppAuth(app_id_limpio, llave_limpia)
+        inst_auth = Auth.AppInstallationAuth(app_auth=app_auth, installation_id=installation_id)
+        
+        # 2. Inicializamos Github con inst_auth primero para inyectar el Requester
+        gh = Github(auth=inst_auth)
+        
+        # 3. Ahora sí extraemos el token sin que tire AssertionError
+        token_instalacion = inst_auth.token
         
         url_pr_api = data["pull_request"]["url"]
         headers = {
@@ -217,7 +225,6 @@ Diff a analizar:
             print("Error de OpenRouter:", res_ai.text)
 
         print("📝 Escribiendo comentario en el PR...")
-        gh = Github(token_instalacion)
         repo = gh.get_repo(repo_nombre)
         pr = repo.get_pull(pr_numero)
         
@@ -230,8 +237,6 @@ Diff a analizar:
         print(f"❌ Error crítico procesando el PR:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Error interno del bot")
-            
-    return {"status": "ignorado", "mensaje": "No es un evento de PR relevante"}
 
 @app.post("/api/optimize")
 async def optimizar_codigo(peticion: PeticionOptimizacion):
