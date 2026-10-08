@@ -153,37 +153,94 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
     print(f"🚀 Iniciando análisis para {repo_nombre} | PR #{pr_numero}")
 
     try:
-        # Validaciones para Render
-        if not GITHUB_APP_ID:
-            raise ValueError("Falta GITHUB_APP_ID en las variables de entorno de Render")
-        if not GITHUB_PRIVATE_KEY:
-            raise ValueError("Falta GITHUB_PRIVATE_KEY en las variables de entorno de Render")
+        if not GITHUB_APP_ID or not GITHUB_PRIVATE_KEY:
+            raise ValueError("Faltan credenciales de GitHub en entorno")
 
         app_id_limpio = int(GITHUB_APP_ID)
         llave_limpia = GITHUB_PRIVATE_KEY.replace('\\n', '\n')
 
-        # --- CORRECCIÓN PYGITHUB ---
-        # 1. Creamos las instancias de Auth
+        # 1. Autenticación temprana con GitHub
         app_auth = Auth.AppAuth(app_id_limpio, llave_limpia)
         inst_auth = Auth.AppInstallationAuth(app_auth=app_auth, installation_id=installation_id)
-        
-        # 2. Inicializamos Github con inst_auth primero para inyectar el Requester
         gh = Github(auth=inst_auth)
+
+        # --- 🛑 BARRERA DE PEAJE: CHEQUEO DE LÍMITES Y USOS ---
+        LIMITE_USOS_FREE = 5
+        LIMITE_USOS_PRO = 30
+        LIMITE_LINEAS_FREE = 500
+        LIMITE_LINEAS_PRO = 2000
         
-        # 3. Ahora sí extraemos el token sin que tire AssertionError
+        url_perfil = f"{SUPABASE_URL}/rest/v1/profiles?identificacion=eq.{installation_id}&select=*"
+        headers_supa = {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+        
+        res_perfil = requests.get(url_perfil, headers=headers_supa)
+        perfil = None
+        usos_actuales = 0
+        plan = "free" # Por defecto
+        
+        if res_perfil.status_code == 200 and len(res_perfil.json()) > 0:
+            perfil = res_perfil.json()[0]
+            plan = perfil.get("estado del plan", "free").lower()
+            usos_actuales = perfil.get("usage_count", 0)
+            
+            # 1. Chequeo de cantidad de usos (PRs mensuales)
+            if plan == "free" and usos_actuales >= LIMITE_USOS_FREE:
+                print(f"🛑 Límite de usos FREE alcanzado para {installation_id}.")
+                repo = gh.get_repo(repo_nombre)
+                repo.get_pull(pr_numero).create_issue_comment(
+                    "🤖 **CodeForgeZero — Límite Gratuito Alcanzado**\n\n"
+                    f"Has agotado tu límite de **{LIMITE_USOS_FREE} análisis mensuales**.\n\n"
+                    "Para seguir protegiendo tus repositorios contra el patrón N+1, **[actualiza al plan Pro aquí](https://codeforgezero-app.vercel.app/)**."
+                )
+                return {"status": "limite_alcanzado", "mensaje": "Usuario free llegó al tope."}
+
+            elif plan == "pro" and usos_actuales >= LIMITE_USOS_PRO:
+                print(f"🛑 Límite de usos PRO alcanzado para {installation_id}.")
+                repo = gh.get_repo(repo_nombre)
+                repo.get_pull(pr_numero).create_issue_comment(
+                    "🤖 **CodeForgeZero — Límite de Uso Justo**\n\n"
+                    f"Tu equipo ha alcanzado el límite de **{LIMITE_USOS_PRO} análisis mensuales** del plan Pro. Contáctanos para extender tu cuota."
+                )
+                return {"status": "limite_alcanzado", "mensaje": "Usuario pro llegó al tope."}
+        
+        # --- 📥 DESCARGA DEL DIFF ---
         token_instalacion = inst_auth.token
-        
         url_pr_api = data["pull_request"]["url"]
-        headers = {
+        headers_github = {
             "Authorization": f"Bearer {token_instalacion}",
             "Accept": "application/vnd.github.v3.diff"
         }
         
-        respuesta = requests.get(url_pr_api, headers=headers)
+        respuesta = requests.get(url_pr_api, headers=headers_github)
         diff_codigo = respuesta.text
         
-        print("✅ Diff descargado con éxito. Cantidad de caracteres:", len(diff_codigo))
-        
+        # --- 🛑 SEGUNDA BARRERA: TAMAÑO DEL DIFF ---
+        lineas_diff = len(diff_codigo.splitlines())
+        print(f"✅ Diff descargado. Líneas: {lineas_diff}")
+
+        if plan == "free" and lineas_diff > LIMITE_LINEAS_FREE:
+            repo = gh.get_repo(repo_nombre)
+            repo.get_pull(pr_numero).create_issue_comment(
+                f"🤖 **CodeForgeZero — PR Demasiado Grande**\n\n"
+                f"Este Pull Request tiene **{lineas_diff} líneas**, superando el límite del plan gratuito ({LIMITE_LINEAS_FREE} líneas).\n\n"
+                "Para analizar arquitecturas más complejas y PRs masivos, **[actualiza al plan Pro](https://codeforgezero-app.vercel.app/)**."
+            )
+            return {"status": "diff_muy_grande", "mensaje": "Supera límite de líneas free."}
+            
+        elif plan == "pro" and lineas_diff > LIMITE_LINEAS_PRO:
+            repo = gh.get_repo(repo_nombre)
+            repo.get_pull(pr_numero).create_issue_comment(
+                f"🤖 **CodeForgeZero — Límite de Arquitectura**\n\n"
+                f"Este Pull Request tiene **{lineas_diff} líneas**, superando el límite máximo de análisis ({LIMITE_LINEAS_PRO} líneas) para mantener la precisión del modelo."
+            )
+            return {"status": "diff_muy_grande", "mensaje": "Supera límite de líneas pro."}
+        # --- FIN BARRERA ---
+
         print("🧠 Enviando Diff a Nemotron...")
         OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
         if not OPENROUTER_API_KEY:
@@ -227,10 +284,20 @@ Diff a analizar:
         print("📝 Escribiendo comentario en el PR...")
         repo = gh.get_repo(repo_nombre)
         pr = repo.get_pull(pr_numero)
-        
         pr.create_issue_comment(f"🤖 **CodeForgeZero — Informe de Auditoría**\n\n{comentario_ia}")
-        
         print("✅ Comentario publicado con éxito en GitHub!")
+
+        # --- 📈 ACTUALIZADOR DE USOS ---
+        if perfil:
+            nuevos_usos = usos_actuales + 1
+            payload_patch = {"usage_count": nuevos_usos}
+            res_patch = requests.patch(url_perfil, headers=headers_supa, json=payload_patch)
+            if res_patch.status_code in [200, 204]:
+                print(f"📈 Uso incrementado en Supabase a {nuevos_usos}")
+            else:
+                print(f"⚠️ Error actualizando usos en Supabase: {res_patch.text}")
+        # --- FIN ACTUALIZADOR ---
+
         return {"status": "completado", "mensaje": "PR analizado y comentado"}
 
     except Exception as e:
@@ -284,12 +351,12 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
         codigo_test = datos_ia.get("codigo_test", "")
 
         def test_original():
-            ns = {}
+            ns = {{}}
             exec(peticion.codigo_sucio, ns)
             exec(codigo_test, ns)
 
         def test_optimizado():
-            ns = {}
+            ns = {{}}
             exec(datos_ia.get("codigo_optimizado", ""), ns)
             exec(codigo_test, ns)
 
@@ -303,7 +370,7 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
         metricas_disponibles = modulo_faltante is None
 
         if "metricas" not in datos_ia:
-            datos_ia["metricas"] = {}
+            datos_ia["metricas"] = {{}}
 
         if metricas_disponibles:
             ahorro_ram = ((ram_mala - ram_buena) / ram_mala * 100) if ram_mala > 0 else 0.0
@@ -335,7 +402,7 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
             datos_ia["metricas"]["porcentaje_ahorro_cpu"] = None
             datos_ia["metricas"]["ya_optimizado"] = False
             datos_ia["metricas"]["metricas_disponibles"] = False
-            datos_ia["metricas"]["mensaje_metricas"] = f"Métricas no disponibles — el código usa '{modulo_faltante}', una librería externa no instalada en el sandbox."
+            datos_ia["metricas"]["mensaje_metricas"] = f"Métricas no disponibles — el código usa '{{modulo_faltante}}', una librería externa no instalada en el sandbox."
 
             guardar_en_supabase(
                 archivo=peticion.archivo,
