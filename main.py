@@ -170,7 +170,8 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         LIMITE_LINEAS_FREE = 500
         LIMITE_LINEAS_PRO = 2000
         
-        url_perfil = f"{SUPABASE_URL}/rest/v1/profiles?identificacion=eq.{installation_id}&select=*"
+        # Corregido: Buscamos por la columna 'id'
+        url_perfil = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{installation_id}&select=*"
         headers_supa = {
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
@@ -186,7 +187,9 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         if res_perfil.status_code == 200 and len(res_perfil.json()) > 0:
             perfil = res_perfil.json()[0]
             plan = perfil.get("estado del plan", "free").lower()
-            usos_actuales = perfil.get("usage_count", 0)
+            
+            # Corregido: Forzamos un 0 si el valor viene como None (null en Supabase)
+            usos_actuales = perfil.get("usage_count") or 0
             
             # 1. Chequeo de cantidad de usos (PRs mensuales)
             if plan == "free" and usos_actuales >= LIMITE_USOS_FREE:
@@ -291,7 +294,12 @@ Diff a analizar:
         if perfil:
             nuevos_usos = usos_actuales + 1
             payload_patch = {"usage_count": nuevos_usos}
-            res_patch = requests.patch(url_perfil, headers=headers_supa, json=payload_patch)
+            
+            # Corregido: URL limpia sin parámetros GET (apuntando a la columna 'id')
+            url_patch = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{installation_id}"
+            
+            res_patch = requests.patch(url_patch, headers=headers_supa, json=payload_patch)
+            
             if res_patch.status_code in [200, 204]:
                 print(f"📈 Uso incrementado en Supabase a {nuevos_usos}")
             else:
@@ -351,12 +359,12 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
         codigo_test = datos_ia.get("codigo_test", "")
 
         def test_original():
-            ns = {{}}
+            ns = {}
             exec(peticion.codigo_sucio, ns)
             exec(codigo_test, ns)
 
         def test_optimizado():
-            ns = {{}}
+            ns = {}
             exec(datos_ia.get("codigo_optimizado", ""), ns)
             exec(codigo_test, ns)
 
@@ -370,7 +378,7 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
         metricas_disponibles = modulo_faltante is None
 
         if "metricas" not in datos_ia:
-            datos_ia["metricas"] = {{}}
+            datos_ia["metricas"] = {}
 
         if metricas_disponibles:
             ahorro_ram = ((ram_mala - ram_buena) / ram_mala * 100) if ram_mala > 0 else 0.0
@@ -402,7 +410,7 @@ DEBES responder EXCLUSIVAMENTE con un JSON válido con esta estructura, sin text
             datos_ia["metricas"]["porcentaje_ahorro_cpu"] = None
             datos_ia["metricas"]["ya_optimizado"] = False
             datos_ia["metricas"]["metricas_disponibles"] = False
-            datos_ia["metricas"]["mensaje_metricas"] = f"Métricas no disponibles — el código usa '{{modulo_faltante}}', una librería externa no instalada en el sandbox."
+            datos_ia["metricas"]["mensaje_metricas"] = f"Métricas no disponibles — el código usa '{modulo_faltante}', una librería externa no instalada en el sandbox."
 
             guardar_en_supabase(
                 archivo=peticion.archivo,
