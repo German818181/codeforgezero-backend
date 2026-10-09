@@ -278,11 +278,17 @@ Diff a analizar:
         
         res_ai = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers_or, json=payload_or)
         
-        if res_ai.status_code == 200:
-            comentario_ia = res_ai.json()["choices"][0]["message"]["content"]
-        else:
-            comentario_ia = "⚠️ CodeForgeZero no pudo analizar el código (Error en la IA)."
-            print("Error de OpenRouter:", res_ai.text)
+        try:
+            datos_ia = res_ai.json()
+            # Verificamos que realmente exista "choices" antes de sacarlo
+            if res_ai.status_code == 200 and "choices" in datos_ia:
+                comentario_ia = datos_ia["choices"][0]["message"]["content"]
+            else:
+                comentario_ia = "⚠️ **CodeForgeZero — Aviso:** El proveedor de IA (OpenRouter) rechazó la conexión temporalmente (Límite alcanzado o servidor saturado)."
+                print(f"❌ Error detallado de OpenRouter: {datos_ia}")
+        except Exception as e:
+            comentario_ia = "⚠️ **CodeForgeZero — Aviso:** No se pudo procesar la respuesta de la IA."
+            print(f"❌ Error parseando JSON de OpenRouter: {res_ai.text}")
 
         print("📝 Escribiendo comentario en el PR...")
         repo = gh.get_repo(repo_nombre)
