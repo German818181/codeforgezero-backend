@@ -170,8 +170,7 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         LIMITE_LINEAS_FREE = 500
         LIMITE_LINEAS_PRO = 2000
         
-        # Corregido: Buscamos por la columna 'id'
-        url_perfil = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{installation_id}&select=*"
+        url_perfil = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{installation_id}"
         headers_supa = {
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
@@ -180,15 +179,14 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         }
         
         res_perfil = requests.get(url_perfil, headers=headers_supa)
-        perfil = None
+        perfil_existe = False
         usos_actuales = 0
         plan = "free" # Por defecto
         
         if res_perfil.status_code == 200 and len(res_perfil.json()) > 0:
+            perfil_existe = True
             perfil = res_perfil.json()[0]
             plan = perfil.get("estado del plan", "free").lower()
-            
-            # Corregido: Forzamos un 0 si el valor viene como None (null en Supabase)
             usos_actuales = perfil.get("usage_count") or 0
             
             # 1. Chequeo de cantidad de usos (PRs mensuales)
@@ -297,19 +295,23 @@ Diff a analizar:
         print("✅ Comentario publicado con éxito en GitHub!")
 
         # --- 📈 ACTUALIZADOR DE USOS ---
-        if perfil:
-            nuevos_usos = usos_actuales + 1
+        nuevos_usos = usos_actuales + 1
+        
+        if perfil_existe:
+            # Si existe, actualizamos con PATCH
             payload_patch = {"usage_count": nuevos_usos}
-            
-            # Corregido: URL limpia sin parámetros GET (apuntando a la columna 'id')
-            url_patch = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{installation_id}"
-            
-            res_patch = requests.patch(url_patch, headers=headers_supa, json=payload_patch)
-            
-            if res_patch.status_code in [200, 204]:
-                print(f"📈 Uso incrementado en Supabase a {nuevos_usos}")
-            else:
-                print(f"⚠️ Error actualizando usos en Supabase: {res_patch.text}")
+            res_patch = requests.patch(url_perfil, headers=headers_supa, json=payload_patch)
+            print(f"📈 PATCH Supabase (Actualizar): {res_patch.status_code} | Respuesta: {res_patch.text}")
+        else:
+            # Si NO existe, creamos la fila con POST
+            url_post = f"{SUPABASE_URL}/rest/v1/profiles"
+            payload_post = {
+                "id": installation_id,
+                "usage_count": nuevos_usos,
+                "estado del plan": "free"
+            }
+            res_post = requests.post(url_post, headers=headers_supa, json=payload_post)
+            print(f"🆕 POST Supabase (Crear): {res_post.status_code} | Respuesta: {res_post.text}")
         # --- FIN ACTUALIZADOR ---
 
         return {"status": "completado", "mensaje": "PR analizado y comentado"}
