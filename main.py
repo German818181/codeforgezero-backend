@@ -186,7 +186,7 @@ async def procesar_webhook_github(request: Request, x_hub_signature_256: str = H
         if res_perfil.status_code == 200 and len(res_perfil.json()) > 0:
             perfil_existe = True
             perfil = res_perfil.json()[0]
-            plan = perfil.get("estado del plan", "free").lower()
+            plan = perfil.get("estado_del_plan", "free").lower()
             usos_actuales = perfil.get("usage_count") or 0
             
             # 1. Chequeo de cantidad de usos (PRs mensuales)
@@ -308,7 +308,7 @@ Diff a analizar:
             payload_post = {
                 "id": installation_id,
                 "usage_count": nuevos_usos,
-                "estado del plan": "free"
+                "estado_del_plan": "free"
             }
             res_post = requests.post(url_post, headers=headers_supa, json=payload_post)
             print(f"🆕 POST Supabase (Crear): {res_post.status_code} | Respuesta: {res_post.text}")
